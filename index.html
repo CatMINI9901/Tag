@@ -2,32 +2,52 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <title>3D FPS - Jump Added</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>3D FPS Mobile</title>
     <style>
-        body { margin: 0; overflow: hidden; background: #000; font-family: 'Courier New', Courier, monospace; }
-        #ui {
-            position: absolute; top: 20px; left: 20px; color: #0f0;
-            font-size: 18px; pointer-events: none; text-shadow: 2px 2px 2px #000;
+        body { margin: 0; overflow: hidden; background: #000; font-family: sans-serif; touch-action: none; }
+        #ui { position: absolute; top: 10px; left: 10px; color: #0f0; pointer-events: none; }
+        #hp-bar-container { width: 150px; height: 8px; background: #333; border: 1px solid #0f0; }
+        #hp-bar { width: 100%; height: 100%; background: #0f0; }
+        
+        /* ジョイスティック（移動） */
+        #joystick-base {
+            position: absolute; bottom: 40px; left: 40px;
+            width: 100px; height: 100px; background: rgba(255,255,255,0.1);
+            border-radius: 50%; border: 2px solid rgba(255,255,255,0.3);
         }
-        #hp-bar-container { width: 200px; height: 10px; background: #333; margin-top: 5px; border: 1px solid #0f0; }
-        #hp-bar { width: 100%; height: 100%; background: #0f0; transition: width 0.2s; }
+        #joystick-stick {
+            position: absolute; top: 25px; left: 25px;
+            width: 50px; height: 50px; background: rgba(255,255,255,0.5);
+            border-radius: 50%;
+        }
+
+        /* ジャンプボタン */
+        #jump-btn {
+            position: absolute; bottom: 50px; right: 40px;
+            width: 70px; height: 70px; background: rgba(0,255,0,0.2);
+            border: 2px solid #0f0; border-radius: 50%;
+            display: flex; justify-content: center; align-items: center; color: #0f0;
+        }
+
         #msg {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
             display: flex; flex-direction: column; justify-content: center; align-items: center;
-            color: #0f0; font-size: 30px; text-align: center; cursor: pointer;
-            background: rgba(0,0,0,0.8); z-index: 100;
+            color: #0f0; font-size: 24px; background: rgba(0,0,0,0.8); z-index: 100;
         }
     </style>
 </head>
 <body>
     <div id="ui">
         SCORE: <span id="score">0</span><br>
-        HEALTH
         <div id="hp-bar-container"><div id="hp-bar"></div></div>
-        <div style="font-size: 12px; color: #0ff; margin-top: 5px;">SPACE: JUMP | Orange Bullets: Enemy</div>
     </div>
+    
+    <div id="joystick-base"><div id="joystick-stick"></div></div>
+    <div id="jump-btn">JUMP</div>
+    
     <div id="msg" onclick="startGame()">
-        <div id="title-text">CLICK TO START</div>
+        <div>TOUCH TO START</div>
     </div>
 
     <script type="importmap">
@@ -38,19 +58,13 @@
         import * as THREE from 'three';
 
         let score = 0, hp = 100, isStarted = false;
-        let invincibleUntil = 0;
-        const enemies = [], playerBullets = [], enemyBullets = [], walls = [];
-        const keys = {};
-
-        // 物理パラメータ
-        let playerVelocityY = 0;
-        const gravity = -0.012;
-        const jumpStrength = 0.25;
-        let canJump = false;
+        const enemies = [], playerBullets = [], enemyBullets = [];
+        const joystick = { x: 0, y: 0, active: false };
+        let touchX = 0, touchY = 0;
 
         // Scene
         const scene = new THREE.Scene();
-        scene.background = new THREE.Color(0x0a0a1a);
+        scene.background = new THREE.Color(0x050510);
         const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
         const renderer = new THREE.WebGLRenderer({ antialias: true });
         renderer.setSize(window.innerWidth, window.innerHeight);
@@ -60,151 +74,136 @@
         player.position.set(0, 1.6, 0);
         scene.add(player);
         player.add(camera);
+        scene.add(new THREE.AmbientLight(0xffffff, 0.8));
+        scene.add(new THREE.GridHelper(200, 40, 0x004400, 0x111111));
 
-        scene.add(new THREE.AmbientLight(0xffffff, 0.7));
+        // --- スマホ操作の実装 ---
+        const stick = document.getElementById('joystick-stick');
+        const jumpBtn = document.getElementById('jump-btn');
 
-        // 地面
-        const grid = new THREE.GridHelper(200, 50, 0x00ff00, 0x222222);
-        scene.add(grid);
+        // 移動ジョイスティック
+        window.addEventListener('touchstart', (e) => {
+            const touch = e.touches[e.touches.length - 1];
+            if (touch.clientX < window.innerWidth / 2) {
+                joystick.active = true;
+            }
+        });
 
-        // 壁
-        const wallGeo = new THREE.BoxGeometry(4, 8, 4);
-        const wallMat = new THREE.MeshPhongMaterial({ color: 0x222222 });
-        for(let i=0; i<20; i++) {
-            const w = new THREE.Mesh(wallGeo, wallMat);
-            const a = Math.random() * Math.PI * 2;
-            const d = 25 + Math.random() * 25;
-            w.position.set(Math.cos(a)*d, 4, Math.sin(a)*d);
-            scene.add(w); walls.push(w);
-        }
+        window.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            for (let t of e.touches) {
+                if (t.clientX < window.innerWidth / 2) {
+                    const bx = 40 + 50, by = window.innerHeight - 40 - 50;
+                    let dx = t.clientX - bx;
+                    let dy = t.clientY - by;
+                    const dist = Math.min(Math.sqrt(dx*dx + dy*dy), 50);
+                    const angle = Math.atan2(dy, dx);
+                    joystick.x = (Math.cos(angle) * dist) / 50;
+                    joystick.y = (Math.sin(angle) * dist) / 50;
+                    stick.style.transform = `translate(${joystick.x * 40}px, ${joystick.y * 40}px)`;
+                } else {
+                    // 右半分で視点操作
+                    if (touchX !== 0) {
+                        player.rotation.y -= (t.clientX - touchX) * 0.005;
+                        camera.rotation.x -= (t.clientY - touchY) * 0.005;
+                        camera.rotation.x = Math.max(-1.5, Math.min(1.5, camera.rotation.x));
+                    }
+                    touchX = t.clientX; touchY = t.clientY;
+                }
+            }
+        }, { passive: false });
 
-        const msg = document.getElementById('msg');
+        window.addEventListener('touchend', (e) => {
+            if (e.touches.length === 0) {
+                joystick.active = false; joystick.x = 0; joystick.y = 0;
+                stick.style.transform = `translate(0px, 0px)`;
+                touchX = 0; touchY = 0;
+            }
+        });
 
+        // ジャンプと射撃
+        let lastFire = 0;
+        jumpBtn.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            if (player.position.y <= 1.6) playerVelocityY = 0.2;
+        });
+
+        // --- ゲームロジック ---
+        let playerVelocityY = 0;
         window.startGame = function() {
-            hp = 100; score = 0;
-            document.getElementById('score').innerText = score;
-            document.getElementById('hp-bar').style.width = '100%';
-            enemies.forEach(e => scene.remove(e));
-            playerBullets.forEach(b => scene.remove(b));
-            enemyBullets.forEach(b => scene.remove(b));
-            enemies.length = 0; playerBullets.length = 0; enemyBullets.length = 0;
-            player.position.set(0, 1.6, 0);
-            playerVelocityY = 0;
-            for(let i=0; i<10; i++) spawnEnemy();
-            isStarted = true;
-            renderer.domElement.requestPointerLock();
+            hp = 100; score = 0; isStarted = true;
+            document.getElementById('msg').style.display = 'none';
+            for(let i=0; i<5; i++) spawnEnemy();
         }
 
         function spawnEnemy() {
-            const e = new THREE.Mesh(new THREE.BoxGeometry(1.2, 2.2, 1.2), new THREE.MeshPhongMaterial({color: 0xff0000}));
+            const drone = new THREE.Group();
+            drone.add(new THREE.Mesh(new THREE.SphereGeometry(0.5), new THREE.MeshPhongMaterial({color: 0xff0000})));
             const a = Math.random() * Math.PI * 2;
-            const d = 30 + Math.random() * 20;
-            e.position.set(Math.cos(a)*d, 1.1, Math.sin(a)*d);
-            e.lastShootTime = Date.now() + Math.random() * 2000;
-            scene.add(e); enemies.push(e);
+            const d = 20 + Math.random() * 10;
+            drone.position.set(Math.cos(a)*d, 2.0, Math.sin(a)*d);
+            drone.lastShootTime = Date.now();
+            scene.add(drone); enemies.push(drone);
         }
 
-        document.addEventListener('pointerlockchange', () => {
-            msg.style.display = document.pointerLockElement === renderer.domElement ? 'none' : 'flex';
-        });
-
-        document.addEventListener('mousemove', (e) => {
-            if (document.pointerLockElement === renderer.domElement) {
-                player.rotation.y -= e.movementX * 0.002;
-                camera.rotation.x -= e.movementY * 0.002;
-                camera.rotation.x = Math.max(-1.5, Math.min(1.5, camera.rotation.x));
-            }
-        });
-        document.addEventListener('keydown', e => keys[e.code] = true);
-        document.addEventListener('keyup', e => keys[e.code] = false);
-
-        document.addEventListener('mousedown', () => {
-            if (document.pointerLockElement === renderer.domElement && isStarted) {
-                const b = new THREE.Mesh(new THREE.SphereGeometry(0.15), new THREE.MeshBasicMaterial({color: 0x00ffff}));
-                const dir = new THREE.Vector3(0,0,-1).applyQuaternion(camera.getWorldQuaternion(new THREE.Quaternion()));
-                b.position.copy(player.position);
-                b.velocity = dir.multiplyScalar(1.5);
-                scene.add(b); playerBullets.push(b);
-            }
-        });
+        function fire() {
+            const b = new THREE.Mesh(new THREE.SphereGeometry(0.15), new THREE.MeshBasicMaterial({color: 0x00ffff}));
+            const dir = new THREE.Vector3(0,0,-1).applyQuaternion(camera.getWorldQuaternion(new THREE.Quaternion()));
+            b.position.copy(player.position);
+            b.velocity = dir.multiplyScalar(1.0);
+            scene.add(b); playerBullets.push(b);
+        }
 
         function animate() {
             requestAnimationFrame(animate);
-            if (!isStarted || document.pointerLockElement !== renderer.domElement) {
-                renderer.render(scene, camera);
-                return;
-            }
+            if (!isStarted) return;
 
             const now = Date.now();
 
-            // --- ジャンプ & 重力 ---
-            playerVelocityY += gravity;
+            // 自動射撃 (1秒に1回)
+            if (now - lastFire > 1000) { fire(); lastFire = now; }
+
+            // 移動
+            playerVelocityY -= 0.01;
             player.position.y += playerVelocityY;
+            if (player.position.y < 1.6) { player.position.y = 1.6; playerVelocityY = 0; }
+            
+            player.translateZ(joystick.y * 0.1);
+            player.translateX(joystick.x * 0.1);
 
-            // 地面判定 (しゃがみ時を考慮)
-            const isCrouching = keys['ShiftLeft'] || keys['ShiftRight'];
-            const floorY = isCrouching ? 0.8 : 1.6;
-            if (player.position.y <= floorY) {
-                player.position.y = floorY;
-                playerVelocityY = 0;
-                canJump = true;
-            } else {
-                canJump = false;
-            }
-
-            if (keys['Space'] && canJump) {
-                playerVelocityY = jumpStrength;
-                canJump = false;
-            }
-
-            // --- 移動 ---
-            const oldPos = player.position.clone();
-            const speed = isCrouching ? 0.06 : 0.15;
-            if(keys['KeyW']) player.translateZ(-speed);
-            if(keys['KeyS']) player.translateZ(speed);
-            if(keys['KeyA']) player.translateX(-speed);
-            if(keys['KeyD']) player.translateX(speed);
-            walls.forEach(w => {
-                if(Math.abs(player.position.x - w.position.x) < 2.5 && Math.abs(player.position.z - w.position.z) < 2.5) player.position.copy(oldPos);
-            });
-
-            // --- 敵の射撃と弾 ---
+            // 敵
             enemies.forEach(e => {
                 const toP = new THREE.Vector3().subVectors(player.position, e.position);
-                if(toP.length() > 12) e.position.add(toP.clone().normalize().multiplyScalar(0.02));
-                if (now - e.lastShootTime > 3000) {
-                    const eb = new THREE.Mesh(new THREE.SphereGeometry(0.25), new THREE.MeshBasicMaterial({color: 0xff8800}));
-                    eb.position.copy(e.position).setY(1.5);
-                    eb.velocity = new THREE.Vector3().subVectors(player.position, eb.position).normalize().multiplyScalar(0.3);
+                if(toP.length() > 8) e.position.add(toP.normalize().multiplyScalar(0.02));
+                if (now - e.lastShootTime > 4000) {
+                    const eb = new THREE.Mesh(new THREE.SphereGeometry(0.2), new THREE.MeshBasicMaterial({color: 0xff8800}));
+                    eb.position.copy(e.position);
+                    eb.velocity = toP.normalize().multiplyScalar(0.15);
                     scene.add(eb); enemyBullets.push(eb);
                     e.lastShootTime = now;
                 }
             });
 
-            for(let i = enemyBullets.length - 1; i >= 0; i--) {
-                const b = enemyBullets[i]; b.position.add(b.velocity);
-                if(b.position.distanceTo(player.position) < 0.8 && now > invincibleUntil) {
-                    hp -= 20; invincibleUntil = now + 500;
-                    scene.remove(b); enemyBullets.splice(i, 1);
+            // 当たり判定
+            [...enemyBullets].forEach((b, i) => {
+                b.position.add(b.velocity);
+                if(b.position.distanceTo(player.position) < 0.8) {
+                    hp -= 10; scene.remove(b); enemyBullets.splice(i, 1);
                     document.getElementById('hp-bar').style.width = hp + '%';
-                    if(hp <= 0) { isStarted = false; document.exitPointerLock(); document.getElementById('title-text').innerText = "GAME OVER"; }
-                    continue;
                 }
-                if(b.position.length() > 100) { scene.remove(b); enemyBullets.splice(i, 1); }
-            }
+            });
 
-            for(let i = playerBullets.length - 1; i >= 0; i--) {
-                const b = playerBullets[i]; b.position.add(b.velocity);
+            [...playerBullets].forEach((b, i) => {
+                b.position.add(b.velocity);
                 enemies.forEach((e, ei) => {
-                    if(b.position.distanceTo(e.position) < 1.6) {
+                    if(b.position.distanceTo(e.position) < 1.2) {
                         scene.remove(e); enemies.splice(ei, 1);
                         scene.remove(b); playerBullets.splice(i, 1);
                         score++; document.getElementById('score').innerText = score;
-                        spawnEnemy(); // 敵を補充
+                        spawnEnemy();
                     }
                 });
-                if(b.position.length() > 100) { scene.remove(b); playerBullets.splice(i, 1); }
-            }
+            });
 
             renderer.render(scene, camera);
         }
