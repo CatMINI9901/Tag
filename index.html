@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <title>3D FPS - Super Safe Mode</title>
+    <title>3D FPS - Fix Start Button</title>
     <style>
         body { margin: 0; overflow: hidden; background: #000; font-family: 'Courier New', Courier, monospace; }
         #ui {
@@ -12,9 +12,10 @@
         #hp-bar-container { width: 200px; height: 10px; background: #333; margin-top: 5px; border: 1px solid #0f0; }
         #hp-bar { width: 100%; height: 100%; background: #0f0; transition: width 0.2s; }
         #msg {
-            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            display: flex; flex-direction: column; justify-content: center; align-items: center;
             color: #0f0; font-size: 30px; text-align: center; cursor: pointer;
-            background: rgba(0,20,0,0.9); padding: 40px; border: 2px solid #0f0; z-index: 100;
+            background: rgba(0,10,0,0.85); z-index: 100;
         }
     </style>
 </head>
@@ -23,9 +24,11 @@
         SCORE: <span id="score">0</span> / 20<br>
         HEALTH
         <div id="hp-bar-container"><div id="hp-bar"></div></div>
-        <div id="status" style="font-size: 12px; color: #ff0;">READY</div>
     </div>
-    <div id="msg">CLICK TO START</div>
+    <div id="msg">
+        <div>CLICK TO START</div>
+        <div style="font-size: 16px; margin-top: 10px; color: #8f8;">(画面のどこでもクリックしてください)</div>
+    </div>
 
     <script type="importmap">
         { "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js" } }
@@ -35,10 +38,11 @@
         import * as THREE from 'three';
 
         let score = 0, hp = 100, isGameOver = true;
-        let invincibleTime = 0; // 無敵タイマー
+        let invincibleTime = 0;
         const enemies = [], bullets = [], walls = [];
-        let currentWp = 1, lastFire = 0;
+        const keys = {};
 
+        // Scene Setup
         const scene = new THREE.Scene();
         scene.background = new THREE.Color(0x1a1a2e);
         const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
@@ -46,130 +50,120 @@
         renderer.setSize(window.innerWidth, window.innerHeight);
         document.body.appendChild(renderer.domElement);
 
-        scene.add(new THREE.AmbientLight(0xffffff, 0.6));
-        const sun = new THREE.DirectionalLight(0xffffff, 0.5);
-        sun.position.set(10, 20, 10);
-        scene.add(sun);
+        scene.add(new THREE.AmbientLight(0xffffff, 0.7));
+        const player = new THREE.Group();
+        scene.add(player);
+        player.add(camera);
 
         // 地面と壁
         scene.add(new THREE.GridHelper(100, 40, 0x00ff00, 0x222222));
         const wallGeo = new THREE.BoxGeometry(4, 5, 4);
         const wallMat = new THREE.MeshPhongMaterial({ color: 0x333333 });
-        for(let i=0; i<25; i++) {
+        for(let i=0; i<20; i++) {
             const w = new THREE.Mesh(wallGeo, wallMat);
             const a = Math.random() * Math.PI * 2;
-            const d = 15 + Math.random() * 30;
+            const d = 20 + Math.random() * 20;
             w.position.set(Math.cos(a)*d, 2.5, Math.sin(a)*d);
             scene.add(w); walls.push(w);
         }
 
-        const player = new THREE.Group();
-        scene.add(player);
-        player.add(camera);
-
-        const keys = {};
         const msg = document.getElementById('msg');
-        const statusText = document.getElementById('status');
+
+        // --- スタートとロックの修正 ---
+        function requestStart() {
+            if (isGameOver) {
+                resetGame();
+            }
+            // ブラウザにポインターロックを要求
+            renderer.domElement.requestPointerLock();
+        }
+
+        // 画面クリックで開始
+        msg.addEventListener('click', requestStart);
+        
+        // ポインターロックの状態変化を監視
+        document.addEventListener('pointerlockchange', () => {
+            if (document.pointerLockElement === renderer.domElement) {
+                msg.style.display = 'none'; // ロック成功したら消す
+                isGameOver = false;
+            } else {
+                msg.style.display = 'flex'; // 解除されたら出す
+                if(!isGameOver) {
+                   msg.innerHTML = "<div>PAUSED</div><div style='font-size:16px'>CLICK TO RESUME</div>";
+                }
+            }
+        });
 
         function resetGame() {
-            score = 0; hp = 100; isGameOver = false;
-            invincibleTime = 0;
+            score = 0; hp = 100;
             document.getElementById('score').innerText = score;
             document.getElementById('hp-bar').style.width = '100%';
-            statusText.innerText = "FIGHT!";
-            
             enemies.forEach(e => scene.remove(e));
             bullets.forEach(b => scene.remove(b));
             enemies.length = 0; bullets.length = 0;
-            
             player.position.set(0, 1.6, 0);
-            // 敵をさらに遠くに配置 (35m以上)
-            for(let i=0; i<20; i++) {
+            for(let i=0; i<15; i++) {
                 const e = new THREE.Mesh(new THREE.BoxGeometry(1.2, 2.2, 1.2), new THREE.MeshPhongMaterial({color: 0xff4444}));
                 const a = Math.random() * Math.PI * 2;
-                const d = 35 + Math.random() * 15;
+                const d = 30 + Math.random() * 10;
                 e.position.set(Math.cos(a)*d, 1.1, Math.sin(a)*d);
                 e.lastAttack = 0;
-                scene.add(e);
-                enemies.push(e);
+                scene.add(e); enemies.push(e);
             }
         }
 
-        // 入力イベント
+        // --- 入力と更新 ---
         document.addEventListener('mousemove', (e) => {
-            if (document.pointerLockElement === renderer.domElement && !isGameOver) {
+            if (document.pointerLockElement === renderer.domElement) {
                 player.rotation.y -= e.movementX * 0.002;
                 camera.rotation.x -= e.movementY * 0.002;
                 camera.rotation.x = Math.max(-1.5, Math.min(1.5, camera.rotation.x));
             }
         });
+
         document.addEventListener('keydown', e => keys[e.code] = true);
         document.addEventListener('keyup', e => keys[e.code] = false);
-        msg.addEventListener('click', () => { if(isGameOver) resetGame(); renderer.domElement.requestPointerLock(); });
 
-        // 射撃
         document.addEventListener('mousedown', () => {
             if (document.pointerLockElement === renderer.domElement && !isGameOver) {
-                const now = Date.now();
-                if(now - lastFire > 300) {
-                    const b = new THREE.Mesh(new THREE.SphereGeometry(0.15), new THREE.MeshBasicMaterial({color: 0xffff00}));
-                    const dir = new THREE.Vector3(0,0,-1).applyQuaternion(camera.getWorldQuaternion(new THREE.Quaternion()));
-                    b.position.copy(player.position);
-                    b.velocity = dir.multiplyScalar(1.2);
-                    scene.add(b); bullets.push(b);
-                    lastFire = now;
-                }
+                const b = new THREE.Mesh(new THREE.SphereGeometry(0.15), new THREE.MeshBasicMaterial({color: 0xffff00}));
+                const dir = new THREE.Vector3(0,0,-1).applyQuaternion(camera.getWorldQuaternion(new THREE.Quaternion()));
+                b.position.copy(player.position);
+                b.velocity = dir.multiplyScalar(1.2);
+                scene.add(b); bullets.push(b);
             }
         });
 
         function animate() {
             requestAnimationFrame(animate);
-            if (!isGameOver && document.pointerLockElement === renderer.domElement) {
-                // プレイヤー移動
+            if (document.pointerLockElement === renderer.domElement && !isGameOver) {
                 const oldPos = player.position.clone();
-                if(keys['KeyW']) player.translateZ(-0.12);
-                if(keys['KeyS']) player.translateZ(0.12);
-                if(keys['KeyA']) player.translateX(-0.12);
-                if(keys['KeyD']) player.translateX(0.12);
-                walls.forEach(w => { if(Math.abs(player.position.x - w.position.x) < 2.5 && Math.abs(player.position.z - w.position.z) < 2.5) player.position.copy(oldPos); });
+                if(keys['KeyW']) player.translateZ(-0.1);
+                if(keys['KeyS']) player.translateZ(0.1);
+                if(keys['KeyA']) player.translateX(-0.1);
+                if(keys['KeyD']) player.translateX(0.1);
+                
+                walls.forEach(w => {
+                    if(Math.abs(player.position.x - w.position.x) < 2.5 && Math.abs(player.position.z - w.position.z) < 2.5) player.position.copy(oldPos);
+                });
 
                 const now = Date.now();
-                
-                // 無敵演出
-                if (now < invincibleTime) {
-                    player.visible = Math.floor(now/100) % 2 === 0;
-                    statusText.innerText = "INVINCIBLE!";
-                } else {
-                    player.visible = true;
-                    statusText.innerText = "ALIVE";
-                }
-
-                // 敵の挙動
                 enemies.forEach(e => {
                     const toP = new THREE.Vector3().subVectors(player.position, e.position);
-                    const dist = toP.length();
-                    // 非常にゆっくり近づく
                     e.position.add(toP.normalize().multiplyScalar(0.02));
-
-                    // 攻撃判定
-                    if(dist < 1.4 && now > invincibleTime && now > e.lastAttack) {
-                        hp -= 20; // 一撃を重くする代わりに連続ヒットを消す
-                        invincibleTime = now + 1000; // 1秒無敵
-                        e.lastAttack = now + 2000; // 敵の次攻撃まで2秒
-                        
-                        // ノックバック (敵を反対方向に飛ばす)
+                    if(toP.length() < 1.4 && now > invincibleTime) {
+                        hp -= 20;
+                        invincibleTime = now + 1000;
                         e.position.sub(toP.normalize().multiplyScalar(5));
-                        
                         document.getElementById('hp-bar').style.width = hp + '%';
                         if(hp <= 0) {
                             isGameOver = true;
-                            msg.innerHTML = "GAME OVER<br><span style='font-size:16px'>CLICK TO RETRY</span>";
+                            msg.innerHTML = "<div>GAME OVER</div><div style='font-size:16px'>CLICK TO TRY AGAIN</div>";
                             document.exitPointerLock();
                         }
                     }
                 });
 
-                // 弾の更新
                 for(let i=bullets.length-1; i>=0; i--) {
                     const b = bullets[i]; b.position.add(b.velocity);
                     enemies.forEach((e, ei) => {
@@ -179,12 +173,17 @@
                             score++; document.getElementById('score').innerText = score;
                         }
                     });
-                    if(b.position.length() > 80) { scene.remove(b); bullets.splice(i, 1); }
                 }
             }
             renderer.render(scene, camera);
         }
         animate();
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
     </script>
 </body>
 </html>
