@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <title>3D FPS - Perfect Safety Start</title>
+    <title>3D FPS - Absolute Start Safety</title>
     <style>
         body { margin: 0; overflow: hidden; background: #000; font-family: 'Courier New', Courier, monospace; }
         #ui {
@@ -15,7 +15,7 @@
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
             display: flex; flex-direction: column; justify-content: center; align-items: center;
             color: #0f0; font-size: 30px; text-align: center; cursor: pointer;
-            background: rgba(0,10,0,0.9); z-index: 100;
+            background: rgba(0,0,0,0.9); z-index: 100;
         }
     </style>
 </head>
@@ -25,9 +25,9 @@
         HEALTH
         <div id="hp-bar-container"><div id="hp-bar"></div></div>
     </div>
-    <div id="msg" onclick="startGame()">
+    <div id="msg">
         <div id="title-text">CLICK TO START</div>
-        <div style="font-size: 14px; margin-top: 20px; color: #8f8;">(敵はクリックしてから現れます)</div>
+        <div style="font-size: 14px; margin-top: 20px; color: #8f8;">(安全な場所から開始します)</div>
     </div>
 
     <script type="importmap">
@@ -37,83 +37,77 @@
     <script type="module">
         import * as THREE from 'three';
 
-        // --- 変数管理 ---
-        let score = 0, hp = 100;
-        let isStarted = false; // これが重要
-        let invincibleTime = 0;
+        let score = 0, hp = 100, isStarted = false;
+        let invincibleUntil = 0;
         const enemies = [], bullets = [], walls = [];
         const keys = {};
 
-        // Scene
+        // Scene Setup
         const scene = new THREE.Scene();
-        scene.background = new THREE.Color(0x1a1a2e);
+        scene.background = new THREE.Color(0x0a0a1a);
         const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
         const renderer = new THREE.WebGLRenderer({ antialias: true });
         renderer.setSize(window.innerWidth, window.innerHeight);
         document.body.appendChild(renderer.domElement);
 
-        scene.add(new THREE.AmbientLight(0xffffff, 0.8));
         const player = new THREE.Group();
+        player.position.set(0, 1.6, 0); // プレイヤーを空中に配置
         scene.add(player);
         player.add(camera);
 
-        // 地面と壁
-        scene.add(new THREE.GridHelper(100, 40, 0x00ff00, 0x333333));
+        scene.add(new THREE.AmbientLight(0xffffff, 0.9));
+
+        // 地面
+        const grid = new THREE.GridHelper(200, 50, 0x00ff00, 0x222222);
+        scene.add(grid);
+
+        // 壁の生成（プレイヤーから25m以上離す）
         const wallGeo = new THREE.BoxGeometry(4, 5, 4);
-        const wallMat = new THREE.MeshPhongMaterial({ color: 0x333333 });
-        for(let i=0; i<20; i++) {
+        const wallMat = new THREE.MeshPhongMaterial({ color: 0x222222 });
+        for(let i=0; i<25; i++) {
             const w = new THREE.Mesh(wallGeo, wallMat);
             const a = Math.random() * Math.PI * 2;
-            const d = 20 + Math.random() * 20;
+            const d = 25 + Math.random() * 30; // 25mの安全圏
             w.position.set(Math.cos(a)*d, 2.5, Math.sin(a)*d);
             scene.add(w); walls.push(w);
         }
 
         const msg = document.getElementById('msg');
 
-        // --- ゲーム開始処理 ---
-        window.startGame = function() {
-            if (isStarted) {
-                renderer.domElement.requestPointerLock();
-                return;
-            }
-
-            // 初期化
-            score = 0; hp = 100;
+        // 完全な初期化と開始
+        function startGame() {
+            hp = 100; score = 0;
             document.getElementById('score').innerText = score;
             document.getElementById('hp-bar').style.width = '100%';
             
+            // 全オブジェクトリセット
             enemies.forEach(e => scene.remove(e));
+            bullets.forEach(b => scene.remove(b));
             enemies.length = 0;
-            
-            player.position.set(0, 1.6, 0);
-            invincibleTime = Date.now() + 2000; // 最初の2秒は無敵
+            bullets.length = 0;
 
-            // 敵を配置（プレイヤーから30m以上離す）
-            for(let i=0; i<10; i++) {
+            player.position.set(0, 1.6, 0);
+            invincibleUntil = Date.now() + 3000; // 3秒間は絶対に無敵
+            
+            // 敵を遠くに配置
+            for(let i=0; i<8; i++) {
                 const e = new THREE.Mesh(new THREE.BoxGeometry(1.2, 2.2, 1.2), new THREE.MeshPhongMaterial({color: 0xff0000}));
                 const a = Math.random() * Math.PI * 2;
-                const d = 30 + Math.random() * 15;
+                const d = 40 + Math.random() * 10; // 40m以上離す
                 e.position.set(Math.cos(a)*d, 1.1, Math.sin(a)*d);
                 scene.add(e); enemies.push(e);
             }
 
             isStarted = true;
             renderer.domElement.requestPointerLock();
-            msg.style.display = 'none';
         }
 
-        // ポインターロックの監視
+        msg.addEventListener('click', startGame);
+
         document.addEventListener('pointerlockchange', () => {
-            if (document.pointerLockElement === renderer.domElement) {
-                msg.style.display = 'none';
-            } else {
-                msg.style.display = 'flex';
-                document.getElementById('title-text').innerText = "PAUSED (CLICK TO RESUME)";
-            }
+            msg.style.display = document.pointerLockElement === renderer.domElement ? 'none' : 'flex';
         });
 
-        // 入力
         document.addEventListener('mousemove', (e) => {
             if (document.pointerLockElement === renderer.domElement) {
                 player.rotation.y -= e.movementX * 0.002;
@@ -129,70 +123,66 @@
                 const b = new THREE.Mesh(new THREE.SphereGeometry(0.15), new THREE.MeshBasicMaterial({color: 0xffff00}));
                 const dir = new THREE.Vector3(0,0,-1).applyQuaternion(camera.getWorldQuaternion(new THREE.Quaternion()));
                 b.position.copy(player.position);
-                b.velocity = dir.multiplyScalar(1.2);
+                b.velocity = dir.multiplyScalar(1.5);
                 scene.add(b); bullets.push(b);
             }
         });
 
-        // メインループ
         function animate() {
             requestAnimationFrame(animate);
 
             if (isStarted && document.pointerLockElement === renderer.domElement) {
+                const now = Date.now();
+
                 // 移動
                 const oldPos = player.position.clone();
-                if(keys['KeyW']) player.translateZ(-0.1);
-                if(keys['KeyS']) player.translateZ(0.1);
-                if(keys['KeyA']) player.translateX(-0.1);
-                if(keys['KeyD']) player.translateX(0.1);
+                if(keys['KeyW']) player.translateZ(-0.12);
+                if(keys['KeyS']) player.translateZ(0.12);
+                if(keys['KeyA']) player.translateX(-0.12);
+                if(keys['KeyD']) player.translateX(0.12);
                 
+                // 壁判定
                 walls.forEach(w => {
                     if(Math.abs(player.position.x - w.position.x) < 2.5 && Math.abs(player.position.z - w.position.z) < 2.5) player.position.copy(oldPos);
                 });
 
-                const now = Date.now();
-                // 敵の挙動
-                enemies.forEach(e => {
-                    const toP = new THREE.Vector3().subVectors(player.position, e.position);
-                    e.position.add(toP.normalize().multiplyScalar(0.02));
+                // 敵の挙動（開始3秒後から動き出す）
+                if (now > invincibleUntil - 1000) {
+                    enemies.forEach(e => {
+                        const toP = new THREE.Vector3().subVectors(player.position, e.position);
+                        e.position.add(toP.normalize().multiplyScalar(0.02));
 
-                    // ダメージ判定
-                    if(toP.length() < 1.4 && now > invincibleTime) {
-                        hp -= 20;
-                        invincibleTime = now + 1000;
-                        e.position.sub(toP.normalize().multiplyScalar(5)); // ノックバック
-                        document.getElementById('hp-bar').style.width = hp + '%';
-                        
-                        if(hp <= 0) {
-                            isStarted = false; // ループ停止
-                            document.exitPointerLock();
-                            document.getElementById('title-text').innerText = "GAME OVER (CLICK TO RESTART)";
+                        // 衝突判定（空中のプレイヤーに当たるか）
+                        if(toP.length() < 1.4 && now > invincibleUntil) {
+                            hp -= 20;
+                            invincibleUntil = now + 1500; // 被弾後の無敵時間
+                            e.position.sub(toP.normalize().multiplyScalar(8)); // 大きくノックバック
+                            document.getElementById('hp-bar').style.width = hp + '%';
+                            if(hp <= 0) {
+                                isStarted = false;
+                                document.exitPointerLock();
+                                document.getElementById('title-text').innerText = "GAME OVER (CLICK TO RESTART)";
+                            }
                         }
-                    }
-                });
+                    });
+                }
 
                 // 弾
                 for(let i=bullets.length-1; i>=0; i--) {
                     const b = bullets[i]; b.position.add(b.velocity);
                     enemies.forEach((e, ei) => {
-                        if(b.position.distanceTo(e.position) < 1.5) {
+                        if(b.position.distanceTo(e.position) < 1.6) {
                             scene.remove(e); enemies.splice(ei, 1);
                             scene.remove(b); bullets.splice(i, 1);
                             score++; document.getElementById('score').innerText = score;
                         }
                     });
-                    if(b.position.length() > 80) { scene.remove(b); bullets.splice(i, 1); }
+                    if(b.position.length() > 100) { scene.remove(b); bullets.splice(i, 1); }
                 }
             }
             renderer.render(scene, camera);
         }
         animate();
-
-        window.addEventListener('resize', () => {
-            camera.aspect = window.innerWidth / window.innerHeight;
-            camera.updateProjectionMatrix();
-            renderer.setSize(window.innerWidth, window.innerHeight);
-        });
     </script>
 </body>
 </html>
