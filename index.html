@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <title>3D FPS - Input Fixed</title>
+    <title>3D FPS - Brightness Adjusted</title>
     <style>
         body { margin: 0; overflow: hidden; background: #000; font-family: 'Courier New', Courier, monospace; }
         #ui {
@@ -21,7 +21,7 @@
         #msg {
             position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
             color: #0f0; font-size: 30px; text-align: center; cursor: pointer;
-            background: rgba(0,20,0,0.9); padding: 40px; border: 2px solid #0f0; z-index: 100;
+            background: rgba(0,20,0,0.8); padding: 40px; border: 2px solid #0f0; z-index: 100;
         }
     </style>
 </head>
@@ -31,9 +31,10 @@
         HEALTH
         <div id="hp-bar-container"><div id="hp-bar"></div></div>
         <div id="weapon-info">WEAPON: <span id="weapon-name">PISTOL</span></div>
+        <div style="font-size: 12px; color: #8f8;">W,A,S,D: MOVE | SHIFT: CROUCH | 1-3: SWAP</div>
     </div>
     <div id="crosshair"></div>
-    <div id="msg">CLICK TO START<br><span style="font-size: 16px;">マウス移動で視点変更</span></div>
+    <div id="msg">CLICK TO START</div>
 
     <script type="importmap">
         { "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js" } }
@@ -42,9 +43,9 @@
     <script type="module">
         import * as THREE from 'three';
 
-        // --- 設定 ---
+        // --- 基本設定 ---
         let score = 0, hp = 100, isGameOver = false;
-        const enemies = [], bullets = [], enemyBullets = [], walls = [];
+        const enemies = [], bullets = [], walls = [];
         let currentWp = 1, lastFire = 0;
         const weapons = {
             1: { name: "PISTOL", rate: 400, count: 1, spread: 0, speed: 1.2 },
@@ -53,24 +54,39 @@
         };
 
         const scene = new THREE.Scene();
-        scene.background = new THREE.Color(0x020205);
+        // 明るめのネイビーで視認性を向上
+        scene.background = new THREE.Color(0x1a1a2e);
+        scene.fog = new THREE.Fog(0x1a1a2e, 1, 80);
+
         const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
         const renderer = new THREE.WebGLRenderer({ antialias: true });
         renderer.setSize(window.innerWidth, window.innerHeight);
         document.body.appendChild(renderer.domElement);
 
-        scene.add(new THREE.AmbientLight(0x404040));
-        const light = new THREE.DirectionalLight(0xffffff, 1);
-        light.position.set(10, 20, 10);
-        scene.add(light);
+        // --- ライティング強化 ---
+        const ambientLight = new THREE.AmbientLight(0x666666); // 全体を底上げ
+        scene.add(ambientLight);
 
-        // 壁と地面
-        const grid = new THREE.GridHelper(100, 50, 0x00ff00, 0x222222);
+        const sunLight = new THREE.DirectionalLight(0xaaaaff, 0.8); // 青白い光を斜めから
+        sunLight.position.set(20, 50, 20);
+        scene.add(sunLight);
+
+        // 地面
+        const grid = new THREE.GridHelper(100, 50, 0x00ff00, 0x444444);
         scene.add(grid);
-        for(let i=0; i<30; i++) {
-            const w = new THREE.Mesh(new THREE.BoxGeometry(4,5,4), new THREE.MeshPhongMaterial({color: 0x222222}));
-            w.position.set((Math.random()-0.5)*80, 2.5, (Math.random()-0.5)*80);
-            if(w.position.length() > 10) { scene.add(w); walls.push(w); }
+        const plane = new THREE.Mesh(new THREE.PlaneGeometry(100, 100), new THREE.MeshPhongMaterial({color: 0x111111}));
+        plane.rotation.x = -Math.PI/2;
+        scene.add(plane);
+
+        // 壁の生成
+        const wallGeo = new THREE.BoxGeometry(4, 5, 4);
+        const wallMat = new THREE.MeshPhongMaterial({ color: 0x252525, emissive: 0x111111 });
+        for(let i=0; i<35; i++) {
+            const w = new THREE.Mesh(wallGeo, wallMat);
+            const a = Math.random() * Math.PI * 2;
+            const d = 12 + Math.random() * 35;
+            w.position.set(Math.cos(a)*d, 2.5, Math.sin(a)*d);
+            scene.add(w); walls.push(w);
         }
 
         const player = new THREE.Group();
@@ -81,22 +97,16 @@
         const keys = {};
         const msg = document.getElementById('msg');
 
-        // --- 視点移動の重要修正 ---
-        function onMouseMove(e) {
+        // --- 視点移動 ---
+        document.addEventListener('mousemove', (e) => {
             if (document.pointerLockElement === renderer.domElement && !isGameOver) {
-                // movementX/Y が取れないブラウザ向けの代替処理はせず、
-                // ポインターロック時の標準的な取得方法を徹底
-                const movementX = e.movementX || e.mozMovementX || e.webkitMovementX || 0;
-                const movementY = e.movementY || e.mozMovementY || e.webkitMovementY || 0;
-
-                player.rotation.y -= movementX * 0.002;
-                camera.rotation.x -= movementY * 0.002;
+                player.rotation.y -= e.movementX * 0.002;
+                camera.rotation.x -= e.movementY * 0.002;
                 camera.rotation.x = Math.max(-Math.PI/2.1, Math.min(Math.PI/2.1, camera.rotation.x));
             }
-        }
-        document.addEventListener('mousemove', onMouseMove, false);
+        });
 
-        // --- 入力系 ---
+        // --- 入力 ---
         document.addEventListener('keydown', e => { 
             keys[e.code] = true;
             if(e.key === "1") switchW(1); if(e.key === "2") switchW(2); if(e.key === "3") switchW(3);
@@ -104,26 +114,19 @@
         document.addEventListener('keyup', e => keys[e.code] = false);
 
         msg.addEventListener('click', () => {
+            if(isGameOver) location.reload();
             renderer.domElement.requestPointerLock();
         });
 
         document.addEventListener('pointerlockchange', () => {
-            if (document.pointerLockElement === renderer.domElement) {
-                msg.style.display = 'none';
-                if(enemies.length === 0) spawnEnemies();
-            } else {
-                if(!isGameOver) msg.style.display = 'block';
-            }
+            msg.style.display = document.pointerLockElement === renderer.domElement ? 'none' : 'block';
+            if(enemies.length === 0) spawnEnemies();
         });
 
-        // 射撃
         document.addEventListener('mousedown', () => {
             if (document.pointerLockElement === renderer.domElement && !isGameOver) {
                 const now = Date.now();
-                if(now - lastFire > weapons[currentWp].rate) {
-                    fire();
-                    lastFire = now;
-                }
+                if(now - lastFire > weapons[currentWp].rate) { fire(); lastFire = now; }
             }
         });
 
@@ -133,7 +136,7 @@
             const wp = weapons[currentWp];
             const dir = new THREE.Vector3(0,0,-1).applyQuaternion(camera.getWorldQuaternion(new THREE.Quaternion()));
             for(let i=0; i<wp.count; i++) {
-                const b = new THREE.Mesh(new THREE.SphereGeometry(0.1), new THREE.MeshBasicMaterial({color: 0x00ffff}));
+                const b = new THREE.Mesh(new THREE.SphereGeometry(0.12), new THREE.MeshBasicMaterial({color: 0x00ffff}));
                 b.position.copy(player.position);
                 const bDir = dir.clone();
                 bDir.x += (Math.random()-0.5)*wp.spread; bDir.y += (Math.random()-0.5)*wp.spread;
@@ -144,21 +147,21 @@
 
         function spawnEnemies() {
             for(let i=0; i<20; i++) {
-                const e = new THREE.Mesh(new THREE.BoxGeometry(1.2, 2, 1.2), new THREE.MeshPhongMaterial({color: 0xff0000}));
-                e.position.set((Math.random()-0.5)*70, 1, (Math.random()-0.5)*70);
-                if(e.position.length() < 10) e.position.x += 15;
-                e.lastShot = 0; scene.add(e); enemies.push(e);
+                const e = new THREE.Mesh(new THREE.BoxGeometry(1.2, 2.2, 1.2), new THREE.MeshPhongMaterial({color: 0xff3333, emissive: 0x440000}));
+                e.position.set((Math.random()-0.5)*75, 1.1, (Math.random()-0.5)*75);
+                if(e.position.length() < 12) e.position.x += 18;
+                scene.add(e); enemies.push(e);
             }
         }
 
         function animate() {
             requestAnimationFrame(animate);
             if (document.pointerLockElement === renderer.domElement && !isGameOver) {
-                // 移動
-                const speed = (keys['ShiftLeft'] || keys['ShiftRight']) ? 0.07 : 0.15;
-                const targetHeight = (keys['ShiftLeft'] || keys['ShiftRight']) ? 0.8 : 1.6;
-                player.position.y += (targetHeight - player.position.y) * 0.1;
-                
+                const isCrouch = keys['ShiftLeft'] || keys['ShiftRight'];
+                const speed = isCrouch ? 0.08 : 0.16;
+                const targetY = isCrouch ? 0.9 : 1.6;
+                player.position.y += (targetY - player.position.y) * 0.15;
+
                 const oldPos = player.position.clone();
                 if(keys['KeyW']) player.translateZ(-speed);
                 if(keys['KeyS']) player.translateZ(speed);
@@ -166,26 +169,49 @@
                 if(keys['KeyD']) player.translateX(speed);
                 
                 walls.forEach(w => {
-                    if(Math.abs(player.position.x - w.position.x) < 2.5 && Math.abs(player.position.z - w.position.z) < 2.5) {
-                        player.position.copy(oldPos);
-                    }
+                    if(Math.abs(player.position.x - w.position.x) < 2.6 && Math.abs(player.position.z - w.position.z) < 2.6) player.position.copy(oldPos);
                 });
 
-                // 弾の移動と判定
+                enemies.forEach(e => {
+                    const toP = new THREE.Vector3().subVectors(player.position, e.position);
+                    e.position.add(toP.normalize().multiplyScalar(0.05));
+                    if(toP.length() < 1.3) { hp -= 0.5; updateHP(); }
+                });
+
                 for(let i=bullets.length-1; i>=0; i--) {
                     const b = bullets[i]; b.position.add(b.velocity);
+                    let hit = false;
+                    walls.forEach(w => {
+                        if(Math.abs(b.position.x - w.position.x) < 2 && Math.abs(b.position.z - w.position.z) < 2) hit = true;
+                    });
                     enemies.forEach((e, ei) => {
-                        if(b.position.distanceTo(e.position) < 1.2) {
-                            scene.remove(e); scene.remove(b);
-                            enemies.splice(ei, 1); bullets.splice(i, 1);
+                        if(b.position.distanceTo(e.position) < 1.3) {
+                            scene.remove(e); enemies.splice(ei, 1);
                             score++; document.getElementById('score').innerText = score;
+                            hit = true;
                         }
                     });
+                    if(hit || b.position.length() > 100) { scene.remove(b); bullets.splice(i, 1); }
                 }
             }
             renderer.render(scene, camera);
         }
+
+        function updateHP() {
+            document.getElementById('hp-bar').style.width = Math.max(0, hp) + '%';
+            if(hp <= 0 && !isGameOver) {
+                isGameOver = true;
+                msg.innerHTML = "GAME OVER<br><span style='font-size:16px'>CLICK TO RESTART</span>";
+                msg.style.display = 'block';
+                document.exitPointerLock();
+            }
+        }
+
         animate();
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
     </script>
 </body>
 </html>
