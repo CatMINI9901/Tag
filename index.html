@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <title>3D FPS - Clear the Drones</title>
+    <title>3D FPS - 8 Drones Mission</title>
     <style>
         body { margin: 0; overflow: hidden; background: #87ceeb; font-family: 'Courier New', Courier, monospace; }
         #ui {
@@ -28,7 +28,7 @@
     </div>
     <div id="msg" onclick="startGame()">
         <div id="title-text">CLICK TO START</div>
-        <div style="font-size: 14px; margin-top: 20px; color: #555;">全3体のドローンを破壊せよ</div>
+        <div style="font-size: 14px; margin-top: 20px; color: #555;">全8体のドローンを破壊せよ</div>
     </div>
 
     <script type="importmap">
@@ -128,7 +128,8 @@
             player.position.set(0, 1.6, 0);
             playerVelocityY = 0;
 
-            for(let i=0; i<3; i++) spawnEnemy();
+            // 敵を8体に増量
+            for(let i=0; i<8; i++) spawnEnemy();
             isStarted = true;
             renderer.domElement.requestPointerLock();
         }
@@ -222,7 +223,6 @@
                         scene.remove(e); enemies.splice(ei, 1);
                         scene.remove(b); playerBullets.splice(i, 1);
                         score++; document.getElementById('score').innerText = score;
-                        // spawnEnemy() を削除したため、倒しても増えません。
                         if(enemies.length === 0) {
                             isStarted = false; document.exitPointerLock();
                             document.getElementById('title-text').innerText = "MISSION COMPLETE!";
