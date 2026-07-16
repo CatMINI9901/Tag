@@ -2,239 +2,275 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <title>3D FPS - 8 Drones Mission</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vocal Sampler Studio (MP3版)</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
+    <script src="https://unpkg.com/@tonejs/midi"></script>
     <style>
-        body { margin: 0; overflow: hidden; background: #87ceeb; font-family: 'Courier New', Courier, monospace; }
-        #ui {
-            position: absolute; top: 20px; left: 20px; color: #fff;
-            font-size: 18px; pointer-events: none; text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
+        :root {
+            --bg-color: #0b0f19;
+            --panel-color: #151d30;
+            --accent-color: #10b981;
+            --accent-hover: #059669;
+            --text-color: #f3f4f6;
+            --text-muted: #9ca3af;
         }
-        #hp-bar-container { width: 200px; height: 10px; background: rgba(255,255,255,0.3); margin-top: 5px; border: 2px solid #fff; }
-        #hp-bar { width: 100%; height: 100%; background: #ff4444; transition: width 0.2s; }
-        #msg {
-            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            display: flex; flex-direction: column; justify-content: center; align-items: center;
-            color: #fff; font-size: 30px; text-align: center; cursor: pointer;
-            background: rgba(135, 206, 235, 0.8); z-index: 100;
+
+        body {
+            font-family: sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 600px;
+            background: var(--panel-color);
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
+        }
+
+        h1 {
+            text-align: center;
+            color: var(--accent-color);
+            margin-top: 0;
+        }
+
+        .status {
+            text-align: center;
+            background: #0b0f19;
+            padding: 10px;
+            border-radius: 6px;
+            margin-bottom: 20px;
+            font-size: 14px;
+            color: var(--text-muted);
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+
+        input[type="file"], textarea {
+            width: 100%;
+            padding: 10px;
+            background: #0b0f19;
+            border: 1px solid #374151;
+            color: white;
+            border-radius: 6px;
+            box-sizing: border-box;
+        }
+
+        textarea {
+            resize: none;
+            height: 60px;
+        }
+
+        #monitor {
+            font-size: 48px;
+            font-weight: bold;
+            text-align: center;
+            color: var(--accent-color);
+            margin: 20px 0;
+            min-height: 60px;
+        }
+
+        .btn-group {
+            display: flex;
+            gap: 10px;
+        }
+
+        button {
+            flex: 1;
+            padding: 12px;
+            border: none;
+            border-radius: 6px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+
+        .btn-play {
+            background: var(--accent-color);
+            color: white;
+        }
+
+        .btn-play:disabled {
+            background: #4b5563;
+            cursor: not-allowed;
+        }
+
+        .btn-stop {
+            background: #ef4444;
+            color: white;
         }
     </style>
 </head>
 <body>
-    <div id="ui">
-        SCORE: <span id="score">0</span><br>
-        HEALTH
-        <div id="hp-bar-container"><div id="hp-bar"></div></div>
-        <div style="font-size: 12px; color: #eee; margin-top: 5px;">SPACE: JUMP | W,A,S,D: MOVE</div>
+
+<div class="container">
+    <h1>Vocal Sampler Studio</h1>
+    <div class="status" id="load-status">MP3ボイスライブラリをロード中... 🚀</div>
+
+    <div class="form-group">
+        <label>1. MIDIファイルをアップロード</label>
+        <input type="file" id="midi-file" accept=".mid,.midi">
     </div>
-    <div id="msg" onclick="startGame()">
-        <div id="title-text">CLICK TO START</div>
-        <div style="font-size: 14px; margin-top: 20px; color: #555;">全8体のドローンを破壊せよ</div>
+
+    <div class="form-group">
+        <label>2. 歌詞（ひらがな・カタカナのみ）</label>
+        <textarea id="lyrics">かえるのうたがきこえてくるよ</textarea>
     </div>
 
-    <script type="importmap">
-        { "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js" } }
-    </script>
+    <div id="monitor">-</div>
 
-    <script type="module">
-        import * as THREE from 'three';
+    <div class="btn-group">
+        <button id="play-btn" class="btn-play" disabled>歌わせる</button>
+        <button id="stop-btn" class="btn-stop">ストップ</button>
+    </div>
+</div>
 
-        let score = 0, hp = 100, isStarted = false;
-        let invincibleUntil = 0;
-        const enemies = [], playerBullets = [], enemyBullets = [], walls = [];
-        const keys = {};
+<script>
+    // ひらがな -> 母音 マッピング
+    const vowelMap = {
+        'あ': 'a', 'か': 'a', 'さ': 'a', 'た': 'a', 'な': 'a', 'は': 'a', 'ま': 'a', 'や': 'a', 'ら': 'a', 'わ': 'a', 'が': 'a', 'ざ': 'a', 'だ': 'a', 'ば': 'a', 'ぱ': 'a',
+        'い': 'i', 'き': 'i', 'し': 'i', 'ち': 'i', 'に': 'i', 'ひ': 'i', 'み': 'i', 'り': 'i', 'ぎ': 'i', 'じ': 'i', 'ぢ': 'i', 'び': 'i', 'ぴ': 'i',
+        'う': 'u', 'く': 'u', 'す': 'u', 'つ': 'u', 'ぬ': 'u', 'ふ': 'u', 'む': 'u', 'ゆ': 'u', 'る': 'u', 'ぐ': 'u', 'ず': 'u', 'づ': 'u', 'ぶ': 'u', 'ぷ': 'u',
+        'え': 'e', 'け': 'e', 'せ': 'e', 'て': 'e', 'ね': 'e', 'へ': 'e', 'め': 'e', 'れ': 'e', 'げ': 'e', 'ぜ': 'e', 'で': 'e', 'べ': 'e', 'ぺ': 'e',
+        'お': 'o', 'こ': 'o', 'そ': 'o', 'と': 'o', 'の': 'o', 'ほ': 'o', 'も': 'o', 'よ': 'o', 'ろ': 'o', 'を': 'o', 'ご': 'o', 'ぞ': 'o', 'ど': 'o', 'ぼ': 'o', 'ぽ': 'o',
+        'ん': 'n', 'ー': 'extend'
+    };
 
-        let playerVelocityY = 0;
-        const gravity = -0.01;
-        const jumpStrength = 0.22;
-        let canJump = false;
-
-        const scene = new THREE.Scene();
-        scene.background = new THREE.Color(0x87ceeb);
-        scene.fog = new THREE.Fog(0x87ceeb, 30, 120);
-
-        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-        const renderer = new THREE.WebGLRenderer({ antialias: true });
-        renderer.setSize(window.innerWidth, window.innerHeight);
-        document.body.appendChild(renderer.domElement);
-
-        const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
-        scene.add(ambientLight);
-
-        const sunLight = new THREE.DirectionalLight(0xffffff, 0.9);
-        sunLight.position.set(50, 100, 50);
-        scene.add(sunLight);
-
-        const ground = new THREE.Mesh(new THREE.PlaneGeometry(1000, 1000), new THREE.MeshPhongMaterial({ color: 0x558855 }));
-        ground.rotation.x = -Math.PI / 2;
-        scene.add(ground);
-        scene.add(new THREE.GridHelper(200, 40, 0x447744, 0x669966));
-
-        function createCloud() {
-            const group = new THREE.Group();
-            const mat = new THREE.MeshLambertMaterial({ color: 0xffffff, transparent: true, opacity: 0.8 });
-            for(let i=0; i<5; i++) {
-                const p = new THREE.Mesh(new THREE.SphereGeometry(2 + Math.random()*2, 8, 8), mat);
-                p.position.set(i*2, Math.random(), Math.random());
-                group.add(p);
-            }
-            return group;
-        }
-        for(let i=0; i<20; i++) {
-            const cloud = createCloud();
-            cloud.position.set(Math.random()*200-100, 15 + Math.random()*10, Math.random()*200-100);
-            scene.add(cloud);
-        }
-
-        const wallMat = new THREE.MeshPhongMaterial({ color: 0xaaaaaa });
-        for(let i=0; i<12; i++) {
-            const w = new THREE.Mesh(new THREE.BoxGeometry(4, 12, 4), wallMat);
-            const a = Math.random() * Math.PI * 2;
-            const d = 25 + Math.random() * 15;
-            w.position.set(Math.cos(a)*d, 6, Math.sin(a)*d);
-            scene.add(w); walls.push(w);
-        }
-
-        const player = new THREE.Group();
-        player.position.set(0, 1.6, 0);
-        scene.add(player);
-        player.add(camera);
-
-        const msg = document.getElementById('msg');
-
-        function createDrone() {
-            const group = new THREE.Group();
-            const body = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.6, 0.4, 6), new THREE.MeshPhongMaterial({ color: 0x222222 }));
-            group.add(body);
-            const eye = new THREE.Mesh(new THREE.SphereGeometry(0.15, 8, 8), new THREE.MeshBasicMaterial({ color: 0x00ff00 }));
-            eye.position.set(0, 0, -0.5);
-            group.add(eye);
-            const armGeo = new THREE.BoxGeometry(0.1, 0.1, 1.2);
-            const armMat = new THREE.MeshPhongMaterial({ color: 0x444444 });
-            const arm1 = new THREE.Mesh(armGeo, armMat); arm1.rotation.y = Math.PI / 4; group.add(arm1);
-            const arm2 = new THREE.Mesh(armGeo, armMat); arm2.rotation.y = -Math.PI / 4; group.add(arm2);
-            const ring = new THREE.Mesh(new THREE.TorusGeometry(0.8, 0.03, 8, 16), armMat);
-            ring.rotation.x = Math.PI / 2; group.add(ring);
-            return group;
-        }
-
-        window.startGame = function() {
-            hp = 100; score = 0;
-            document.getElementById('score').innerText = score;
-            document.getElementById('hp-bar').style.width = '100%';
-            enemies.forEach(e => scene.remove(e));
-            playerBullets.forEach(b => scene.remove(b));
-            enemyBullets.forEach(b => scene.remove(b));
-            enemies.length = 0; playerBullets.length = 0; enemyBullets.length = 0;
-            player.position.set(0, 1.6, 0);
-            playerVelocityY = 0;
-
-            // 敵を8体に増量
-            for(let i=0; i<8; i++) spawnEnemy();
-            isStarted = true;
-            renderer.domElement.requestPointerLock();
-        }
-
-        function spawnEnemy() {
-            const drone = createDrone();
-            const a = Math.random() * Math.PI * 2;
-            const d = 30 + Math.random() * 10;
-            drone.position.set(Math.cos(a)*d, 3.0, Math.sin(a)*d);
-            drone.lastShootTime = Date.now() + Math.random() * 2000;
-            scene.add(drone);
-            enemies.push(drone);
-        }
-
-        document.addEventListener('pointerlockchange', () => {
-            msg.style.display = document.pointerLockElement === renderer.domElement ? 'none' : 'flex';
+    // カタカナをひらがなに変換する関数
+    function kanaToHira(str) {
+        return str.replace(/[\u30a1-\u30f6]/g, function(match) {
+            var chr = match.charCodeAt(0) - 0x60;
+            return String.fromCharCode(chr);
         });
+    }
 
-        document.addEventListener('mousemove', (e) => {
-            if (document.pointerLockElement === renderer.domElement) {
-                player.rotation.y -= e.movementX * 0.002;
-                camera.rotation.x -= e.movementY * 0.002;
-                camera.rotation.x = Math.max(-1.5, Math.min(1.5, camera.rotation.x));
-            }
-        });
-        document.addEventListener('keydown', e => keys[e.code] = true);
-        document.addEventListener('keyup', e => keys[e.code] = false);
+    let voices = {};
+    let isLoaded = false;
+    let loadedCount = 0;
+    const vowels = ['a', 'i', 'u', 'e', 'o'];
 
-        document.addEventListener('mousedown', () => {
-            if (document.pointerLockElement === renderer.domElement && isStarted) {
-                const b = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 0.5), new THREE.MeshBasicMaterial({color: 0xffff00}));
-                const dir = new THREE.Vector3(0,0,-1).applyQuaternion(camera.getWorldQuaternion(new THREE.Quaternion()));
-                b.quaternion.copy(camera.getWorldQuaternion(new THREE.Quaternion()));
-                b.position.copy(player.position);
-                b.velocity = dir.multiplyScalar(1.5);
-                scene.add(b); playerBullets.push(b);
-            }
-        });
+    // 読み込み状況の表示用
+    const statusEl = document.getElementById('load-status');
+    statusEl.innerText = "ローカルのMP3ファイルをロード中...";
 
-        function animate() {
-            requestAnimationFrame(animate);
-            if (!isStarted || document.pointerLockElement !== renderer.domElement) {
-                renderer.render(scene, camera);
-                return;
-            }
-
-            const now = Date.now();
-            playerVelocityY += gravity;
-            player.position.y += playerVelocityY;
-            if (player.position.y <= 1.6) { player.position.y = 1.6; playerVelocityY = 0; canJump = true; }
-            if (keys['Space'] && canJump) { playerVelocityY = jumpStrength; canJump = false; }
-
-            const oldPos = player.position.clone();
-            const speed = 0.12;
-            if(keys['KeyW']) player.translateZ(-speed);
-            if(keys['KeyS']) player.translateZ(speed);
-            if(keys['KeyA']) player.translateX(-speed);
-            if(keys['KeyD']) player.translateX(speed);
-            walls.forEach(w => {
-                if(Math.abs(player.position.x - w.position.x) < 2.5 && Math.abs(player.position.z - w.position.z) < 2.5) player.position.copy(oldPos);
-            });
-
-            enemies.forEach(e => {
-                e.position.y = 3.0 + Math.sin(now * 0.002) * 0.3;
-                e.rotation.y += 0.01;
-                const toP = new THREE.Vector3().subVectors(player.position, e.position);
-                if(toP.length() > 12) e.position.add(toP.normalize().multiplyScalar(0.03));
-                if (now - e.lastShootTime > 4000) {
-                    const eb = new THREE.Mesh(new THREE.SphereGeometry(0.2), new THREE.MeshBasicMaterial({color: 0xff4400}));
-                    eb.position.copy(e.position);
-                    eb.velocity = new THREE.Vector3().subVectors(player.position, eb.position).normalize().multiplyScalar(0.2);
-                    scene.add(eb); enemyBullets.push(eb);
-                    e.lastShootTime = now;
-                }
-            });
-
-            for(let i = enemyBullets.length - 1; i >= 0; i--) {
-                const b = enemyBullets[i]; b.position.add(b.velocity);
-                if(b.position.distanceTo(player.position) < 0.7 && now > invincibleUntil) {
-                    hp -= 20; invincibleUntil = now + 1000;
-                    scene.remove(b); enemyBullets.splice(i, 1);
-                    document.getElementById('hp-bar').style.width = hp + '%';
-                    if(hp <= 0) { isStarted = false; document.exitPointerLock(); document.getElementById('title-text').innerText = "GAME OVER"; }
-                } else if(b.position.length() > 100) { scene.remove(b); enemyBullets.splice(i, 1); }
-            }
-
-            for(let i = playerBullets.length - 1; i >= 0; i--) {
-                const b = playerBullets[i]; b.position.add(b.velocity);
-                enemies.forEach((e, ei) => {
-                    if(b.position.distanceTo(e.position) < 1.2) {
-                        scene.remove(e); enemies.splice(ei, 1);
-                        scene.remove(b); playerBullets.splice(i, 1);
-                        score++; document.getElementById('score').innerText = score;
-                        if(enemies.length === 0) {
-                            isStarted = false; document.exitPointerLock();
-                            document.getElementById('title-text').innerText = "MISSION COMPLETE!";
-                        }
+    // 各母音のサンプラーを同じフォルダから読み込む (.mp3に指定変更)
+    // 修正後（女声や高めの音源なら、基準を A4 や C4 にしてみる）
+        vowels.forEach(v => {
+            voices[v] = new Tone.Sampler({
+                urls: {
+                    C5: `./${v}.mp3`  // ← ここを A4 または C4 に書き換えて保存！
+                },
+            onload: () => {
+                loadedCount++;
+                if (loadedCount === vowels.length) {
+                    isLoaded = true;
+                    statusEl.innerText = "全てのMP3の準備完了！MIDIを読み込んでください。";
+                    if (parsedMidi) {
+                        document.getElementById('play-btn').disabled = false;
                     }
-                });
-                if(b.position.length() > 100) { scene.remove(b); playerBullets.splice(i, 1); }
+                }
+            },
+            onerror: () => {
+                statusEl.innerText = `エラー: 【${v}.mp3】が同じフォルダに見つかりません！`;
             }
+        }).toDestination();
+    });
 
-            renderer.render(scene, camera);
+    let parsedMidi = null;
+
+    // MIDIファイルの読み込み処理
+    document.getElementById('midi-file').addEventListener('change', async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = async (event) => {
+            try {
+                parsedMidi = new Midi(event.target.result);
+                if (isLoaded) {
+                    document.getElementById('play-btn').disabled = false;
+                } else {
+                    alert("MP3ファイルがまだロード完了していません。同じフォルダ内のファイル名を確認してください。");
+                }
+            } catch (err) {
+                alert("MIDIファイルの解析に失敗しました。");
+            }
+        };
+        reader.readAsArrayBuffer(file);
+    });
+
+    // 再生処理
+    document.getElementById('play-btn').addEventListener('click', async () => {
+        if (!parsedMidi || !isLoaded) return;
+        
+        await Tone.start();
+
+        const lyricInput = kanaToHira(document.getElementById('lyrics').value.replace(/\s+/g, ''));
+        const lyricsArray = Array.from(lyricInput);
+        const track = parsedMidi.tracks.find(t => t.notes.length > 0);
+
+        if (!track) {
+            alert("有効な音符データを含むトラックがMIDI内にありませんでした。");
+            return;
         }
-        animate();
-    </script>
+
+        Tone.Transport.cancel();
+        
+        let lyricIdx = 0;
+        let lastVowel = 'a';
+
+        track.notes.forEach((note) => {
+            const char = lyricsArray[lyricIdx % lyricsArray.length] || 'ー';
+            let vowel = vowelMap[char] || 'a';
+            
+            if (vowel === 'extend' || vowel === 'n') {
+                vowel = lastVowel;
+            } else {
+                lastVowel = vowel;
+            }
+            lyricIdx++;
+
+            Tone.Transport.schedule((time) => {
+                if (voices[vowel] && voices[vowel].loaded) {
+                    voices[vowel].triggerAttackRelease(note.name, note.duration, time);
+                }
+
+                Tone.Draw.schedule(() => {
+                    document.getElementById('monitor').innerText = char;
+                }, time);
+            }, note.time);
+        });
+
+        Tone.Transport.start();
+    });
+
+    // 停止処理
+    document.getElementById('stop-btn').addEventListener('click', () => {
+        Tone.Transport.stop();
+        vowels.forEach(v => {
+            if (voices[v] && voices[v].loaded) {
+                voices[v].releaseAll();
+            }
+        });
+    });
+</script>
+
 </body>
 </html>
